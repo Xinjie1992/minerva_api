@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 import json
+import datetime
 from django.http import HttpResponse,JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.core import serializers
 from django.db.models import Q
 from minerva.models import Build,App,Version,Relation
+from django.forms.models import model_to_dict
+from django.db import connection
+import MySQLdb
 
 
 @require_http_methods(["GET"])
@@ -47,12 +51,24 @@ def addBuild(req):
 @require_http_methods(["GET"])
 def getBuild(req):
     app_name = req.GET.get('appName')
-    if not app_name:
-        list = Build.objects.all()
-        for item in list:
-            print(item.__dict__)
-        data = serializers.serialize("json", list)
+    version_id = req.GET.get('versionId')
+    if not app_name and not version_id:
+        build_list = Build.objects.all()
+        data = serializers.serialize("json", build_list)
         return HttpResponse(data)
+    elif version_id:
+        build_list = Build.objects.all()
+        version_id_list = Relation.objects.filter(version_id=version_id)
+        test_data = []
+        index = 0
+        for item in build_list:
+            test_data.append(model_to_dict(item))
+            for he in version_id_list:
+                if (item.id == he.app_id):
+                    test_data[index]["selected"] = 1
+            print(test_data[index])
+            index = index + 1
+        return HttpResponse(json.dumps(test_data, cls=CJsonEncoder), content_type="application/json")
     else:
         list = Build.objects.filter(app_name=app_name)
         data = serializers.serialize("json", list)
@@ -93,3 +109,30 @@ def setVersion(req):
     data = serializers.serialize("json", list)
     resp = {"hasError": "false", "message": data}
     return HttpResponse(json.dumps(resp), content_type="application/json")
+
+@require_http_methods(["GET"])
+def getVerRelBuild(req):
+    test_data = []
+    cursor = connection.cursor()
+    sql = """SELECT a.*,b.image FROM minerva_relation AS a LEFT JOIN minerva_build AS b ON a.app_id = b.id"""
+    # data = Relation.objects.raw(sql)
+    cursor.execute(sql)
+    data = cursor.fetchall()
+    print(data)
+    # for item in data:
+    #     # print(item.version_id)
+    #     # print(item.__dict__)
+    #     # print(model_to_dict(item))
+    #     print(item)
+    # data2 = serializers.serialize("json", data)
+    return HttpResponse(data, content_type="application/json")
+
+
+class CJsonEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime.datetime):
+            return obj.strftime('%Y-%m-%d %H:%M:%S')
+        elif isinstance(obj, date):
+            return obj.strftime("%Y-%m-%d")
+        else:
+            return json.JSONEncoder.default(self, obj)
